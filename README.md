@@ -72,3 +72,18 @@ curl.exe -X POST "http://127.0.0.1:8000/target/analyze" `
   -F "image=@reference_image.webp;type=image/webp" `
   -F "description=White SG tournament cricket ball"
 ```
+
+---
+
+## Phase 3: Fast Candidate Generation
+
+### Endpoint: `POST /candidate/detect`
+- Evaluates sampled camera frames in ~15-25ms without overloading network bandwidth or GPU.
+- Combines HSV color segmentation, edge/saliency contouring, and shape aspect-ratio scoring against `TargetProfile`.
+- Automatically produces normalized candidate bounding boxes (`ymin, xmin, ymax, xmax`) and cropped JPEG base64 regions for Gemma verification in Phase 4.
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/candidate/detect" `
+  -F "frame=@reference_image.webp;type=image/jpeg" `
+  -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[],\"confidence\":0.9}"
+```

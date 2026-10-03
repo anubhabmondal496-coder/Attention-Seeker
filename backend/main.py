@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.state import SearchState
 from routes.target import router as target_router
+from routes.candidate import router as candidate_router
 
 app = FastAPI(
     title="Attention Seeker Visual Search API",
@@ -29,6 +30,7 @@ app.add_middleware(
 
 # Register routes
 app.include_router(target_router)
+app.include_router(candidate_router)
 
 @app.get("/health")
 def health_check():

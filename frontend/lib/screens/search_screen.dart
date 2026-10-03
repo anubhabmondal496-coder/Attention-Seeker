@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../models/target_profile.dart';
+import '../models/candidate.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -22,11 +25,15 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _cameraUnavailable = false;
   String _cameraError = '';
 
-  // Search runtime state (mutated dynamically during candidate verification)
-  // ignore: prefer_final_fields
+  // Periodic sampling state
+  Timer? _samplingTimer;
+  bool _isProcessingFrame = false;
+  bool _isDisposed = false;
+
+  // Runtime search state
   SearchState _currentState = SearchState.searching;
-  // ignore: prefer_final_fields
-  String _guidanceText = 'Scanning...';
+  String _guidanceText = 'Scanning... Hold steady while scanning.';
+  Candidate? _currentCandidate;
 
   @override
   void initState() {
@@ -38,10 +45,12 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       _availableCameras = await availableCameras();
       if (_availableCameras.isEmpty) {
-        setState(() {
-          _cameraUnavailable = true;
-          _cameraError = 'No physical camera device detected on this system.';
-        });
+        if (mounted) {
+          setState(() {
+            _cameraUnavailable = true;
+            _cameraError = 'No physical camera device detected on this system.';
+          });
+        }
         return;
       }
 
@@ -63,6 +72,8 @@ class _SearchScreenState extends State<SearchScreen> {
         _isCameraInitialized = true;
         _cameraUnavailable = false;
       });
+
+      _startFrameSampling();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -72,8 +83,55 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  void _startFrameSampling() {
+    _samplingTimer?.cancel();
+    // Sample frames periodically (every 1800 ms) to keep latency low and avoid bandwidth saturation
+    _samplingTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+      _sampleAndDetectFrame();
+    });
+  }
+
+  Future<void> _sampleAndDetectFrame() async {
+    if (_isProcessingFrame || _isDisposed) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+
+    _isProcessingFrame = true;
+
+    try {
+      final XFile picture = await _cameraController!.takePicture();
+      final bytes = await picture.readAsBytes();
+
+      if (_isDisposed || !mounted) return;
+
+      final response = await ApiService.detectCandidate(
+        frameBytes: bytes,
+        targetProfile: widget.targetProfile,
+      );
+
+      if (_isDisposed || !mounted) return;
+
+      setState(() {
+        if (response.candidateFound && response.bestCandidate != null) {
+          _currentState = SearchState.candidateDetected;
+          _currentCandidate = response.bestCandidate;
+          _guidanceText = 'Possible match detected. Move closer.';
+        } else {
+          _currentState = SearchState.searching;
+          _currentCandidate = null;
+          _guidanceText = 'Scanning... Move camera slowly.';
+        }
+      });
+    } catch (_) {
+      // Keep search active on transient frame errors
+    } finally {
+      _isProcessingFrame = false;
+    }
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
+    _samplingTimer?.cancel();
     _cameraController?.dispose();
     super.dispose();
   }
@@ -107,10 +165,14 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-          // 2. Viewfinder Overlay (Crosshairs & framing brackets)
+          // 2. Viewfinder Reticle
           _buildViewfinderReticle(),
 
-          // 3. Top HUD: Status Bar & Target Identification
+          // 3. Dynamic Candidate Bounding Box Overlay
+          if (_currentCandidate != null)
+            _buildCandidateBoundingBoxOverlay(_currentCandidate!),
+
+          // 4. Top HUD: Target Tag & Search State Badge
           SafeArea(
             child: Align(
               alignment: Alignment.topCenter,
@@ -162,23 +224,31 @@ class _SearchScreenState extends State<SearchScreen> {
                       decoration: BoxDecoration(
                         color: AppTheme.background.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: AppTheme.statusSearching),
+                        border: Border.all(
+                          color: _currentState == SearchState.candidateDetected
+                              ? AppTheme.statusCandidate
+                              : AppTheme.statusSearching,
+                        ),
                       ),
                       child: Row(
                         children: [
                           Container(
                             width: 6,
                             height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppTheme.statusSearching,
+                            decoration: BoxDecoration(
+                              color: _currentState == SearchState.candidateDetected
+                                  ? AppTheme.statusCandidate
+                                  : AppTheme.statusSearching,
                               shape: BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 6),
                           Text(
                             _currentState.code,
-                            style: const TextStyle(
-                              color: AppTheme.statusSearching,
+                            style: TextStyle(
+                              color: _currentState == SearchState.candidateDetected
+                                  ? AppTheme.statusCandidate
+                                  : AppTheme.statusSearching,
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.5,
@@ -193,7 +263,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
 
-          // 4. Bottom HUD: Real-time Guidance and Action Controls
+          // 5. Bottom HUD: Real-time Guidance and Action Controls
           SafeArea(
             child: Align(
               alignment: Alignment.bottomCenter,
@@ -209,7 +279,11 @@ class _SearchScreenState extends State<SearchScreen> {
                       decoration: BoxDecoration(
                         color: AppTheme.background.withValues(alpha: 0.92),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: AppTheme.border),
+                        border: Border.all(
+                          color: _currentState == SearchState.candidateDetected
+                              ? AppTheme.statusCandidate
+                              : AppTheme.border,
+                        ),
                       ),
                       child: Column(
                         children: [
@@ -223,9 +297,13 @@ class _SearchScreenState extends State<SearchScreen> {
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Hold phone steady and scan your surroundings slowly.',
-                            style: TextStyle(
+                          Text(
+                            _isProcessingFrame
+                                ? 'Sampling frame...'
+                                : (_currentState == SearchState.candidateDetected
+                                    ? 'Candidate region locked. Move closer to verify.'
+                                    : 'Hold phone steady and scan surroundings slowly.'),
+                            style: const TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 12,
                             ),
@@ -256,15 +334,66 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildCandidateBoundingBoxOverlay(Candidate candidate) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final box = candidate.boundingBox;
+        final left = box.xmin * constraints.maxWidth;
+        final top = box.ymin * constraints.maxHeight;
+        final width = box.width * constraints.maxWidth;
+        final height = box.height * constraints.maxHeight;
+
+        return Positioned(
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+          child: IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: AppTheme.accent, width: 2.0),
+                borderRadius: BorderRadius.circular(4.0),
+              ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    top: -24,
+                    left: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Text(
+                        'CANDIDATE ${(candidate.confidence * 100).toInt()}%',
+                        style: const TextStyle(
+                          color: Color(0xFF0E1116),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildViewfinderReticle() {
     return IgnorePointer(
       child: Center(
         child: SizedBox(
-          width: 260,
-          height: 260,
+          width: 240,
+          height: 240,
           child: Stack(
             children: [
-              // Corner brackets
               Align(
                 alignment: Alignment.topLeft,
                 child: Container(
@@ -272,8 +401,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   height: 20,
                   decoration: const BoxDecoration(
                     border: Border(
-                      top: BorderSide(color: AppTheme.accent, width: 2),
-                      left: BorderSide(color: AppTheme.accent, width: 2),
+                      top: BorderSide(color: AppTheme.border, width: 1.5),
+                      left: BorderSide(color: AppTheme.border, width: 1.5),
                     ),
                   ),
                 ),
@@ -285,8 +414,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   height: 20,
                   decoration: const BoxDecoration(
                     border: Border(
-                      top: BorderSide(color: AppTheme.accent, width: 2),
-                      right: BorderSide(color: AppTheme.accent, width: 2),
+                      top: BorderSide(color: AppTheme.border, width: 1.5),
+                      right: BorderSide(color: AppTheme.border, width: 1.5),
                     ),
                   ),
                 ),
@@ -298,8 +427,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   height: 20,
                   decoration: const BoxDecoration(
                     border: Border(
-                      bottom: BorderSide(color: AppTheme.accent, width: 2),
-                      left: BorderSide(color: AppTheme.accent, width: 2),
+                      bottom: BorderSide(color: AppTheme.border, width: 1.5),
+                      left: BorderSide(color: AppTheme.border, width: 1.5),
                     ),
                   ),
                 ),
@@ -311,21 +440,20 @@ class _SearchScreenState extends State<SearchScreen> {
                   height: 20,
                   decoration: const BoxDecoration(
                     border: Border(
-                      bottom: BorderSide(color: AppTheme.accent, width: 2),
-                      right: BorderSide(color: AppTheme.accent, width: 2),
+                      bottom: BorderSide(color: AppTheme.border, width: 1.5),
+                      right: BorderSide(color: AppTheme.border, width: 1.5),
                     ),
                   ),
                 ),
               ),
-              // Center crosshair
               const Center(
                 child: SizedBox(
-                  width: 10,
-                  height: 10,
+                  width: 8,
+                  height: 8,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppTheme.accent,
+                      color: AppTheme.border,
                     ),
                   ),
                 ),

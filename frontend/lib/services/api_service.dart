@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/target_profile.dart';
+import '../models/candidate.dart';
 
 class ApiService {
   // Base URL auto-selection:
@@ -72,6 +73,40 @@ class ApiService {
     } else {
       final errorDetail = _extractErrorDetail(response.body);
       throw Exception('Analysis error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 3: Sampled camera frame candidate detection
+  static Future<CandidateDetectResponse> detectCandidate({
+    required Uint8List frameBytes,
+    required TargetProfile targetProfile,
+  }) async {
+    final uri = Uri.parse('$baseUrl/candidate/detect');
+    final request = http.MultipartRequest('POST', uri);
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'frame',
+        frameBytes,
+        filename: 'frame.jpg',
+      ),
+    );
+
+    request.fields['target_profile'] = json.encode(targetProfile.toJson());
+
+    final streamedResponse = await request.send().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => throw Exception('Candidate detector timed out.'),
+        );
+
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return CandidateDetectResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Candidate detection error (${response.statusCode}): $errorDetail');
     }
   }
 
