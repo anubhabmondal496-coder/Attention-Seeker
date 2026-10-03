@@ -44,6 +44,7 @@ class DeviceOrientationData {
 }
 
 class SearchDecisionRequest {
+  final String? sessionId;
   final SearchState currentState;
   final Candidate? candidate;
   final VerificationStatus? verificationStatus;
@@ -51,6 +52,7 @@ class SearchDecisionRequest {
   final int attemptsCount;
 
   const SearchDecisionRequest({
+    this.sessionId,
     required this.currentState,
     this.candidate,
     this.verificationStatus,
@@ -60,6 +62,7 @@ class SearchDecisionRequest {
 
   Map<String, dynamic> toJson() {
     return {
+      if (sessionId != null) 'session_id': sessionId,
       'current_state': currentState.code,
       'candidate': candidate != null
           ? {

@@ -155,3 +155,50 @@ curl.exe -X POST "http://127.0.0.1:8000/session/complete" `
   -H "Content-Type: application/json" `
   -d "{\"session_id\":\"session_demo_1\",\"reason\":\"Object located and confirmed\"}"
 ```
+
+---
+
+## Phase 7: Search Memory & Environmental Spatial Tracking
+
+### Capabilities
+- **Spatial Sector Discretization**: Bins device pitch and roll into environmental sectors (`LEVEL_CENTER`, `LEVEL_LEFT`, `LEVEL_RIGHT`, `DOWN_CENTER`, `UP_CENTER`).
+- **Rejected Candidate History**: Records rejected objects so the agent does not continuously re-evaluate false positives.
+- **Unexplored Direction Planner**: Informs the guidance decision engine which sectors have not yet been swept.
+
+### Memory Endpoints
+- `POST /memory/observation`: Records camera viewport orientation during frame sampling.
+- `POST /memory/rejection`: Logs candidate rejection reason and bounding box.
+- `GET /memory/{session_id}/summary`: Returns coverage metrics, visit counts, and suggested unexplored directions.
+
+```powershell
+# Record device orientation observation
+curl.exe -X POST "http://127.0.0.1:8000/memory/observation" `
+  -H "Content-Type: application/json" `
+  -d "{\"session_id\":\"session_demo_1\",\"pitch\":-45.0,\"roll\":30.0,\"guidance\":\"Sweep right\"}"
+
+# Query explored sectors & unexplored planning suggestions
+curl.exe "http://127.0.0.1:8000/memory/session_demo_1/summary"
+```
+
+---
+
+## Phase 8: Real-Time Voice Guidance (TTS)
+
+- Spoken voice feedback via `flutter_tts` for hands-free searching.
+- Speaks concise user instructions in real time (*"Move camera slightly left."*, *"Look lower."*, *"Move closer."*, *"Object found!"*).
+- Built-in deduplication and 1.5s rate-limiting to prevent repetitive audio spam.
+- In-HUD volume toggle button allowing the user to mute or unmute audio guidance at any time.
+
+---
+
+## Phase 9: End-to-End Search Agentic Loop
+
+1. **Target Registration**: User submits a reference photo + description $\rightarrow$ Gemma extracts structured `TargetProfile`.
+2. **Search Activation**: Camera initiates session in `SEARCHING` state.
+3. **Sampling & Fast CV**: Periodic 1800ms frames processed by lightweight HSV + edge saliency in 15–25ms.
+4. **Spatial Planning**: Sensor pitch/roll recorded into search memory, guiding user towards unsearched areas.
+5. **Centering & Zoom Guidance**: Direction engine advises user to center candidate and move closer.
+6. **Gemma Verification**: Centered candidate crop sent to Gemma multimodal model for forensic verification.
+7. **Confirmation & Resolution**:
+   - `FOUND`: App alerts user via visual HUD + voice speech (*"Object found!"*) and transitions to `FoundScreen`.
+   - `NOT_A_MATCH`: Candidate logged to rejection memory and sweep resumes.

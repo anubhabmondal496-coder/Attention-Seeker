@@ -3,10 +3,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../models/target_profile.dart';
 import '../models/verification.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 
 class FoundScreen extends StatelessWidget {
+  final String? sessionId;
   final TargetProfile targetProfile;
   final VerificationResult verificationResult;
   final Uint8List? candidateImageBytes;
@@ -14,6 +16,7 @@ class FoundScreen extends StatelessWidget {
 
   const FoundScreen({
     super.key,
+    this.sessionId,
     required this.targetProfile,
     required this.verificationResult,
     this.candidateImageBytes,
@@ -189,6 +192,12 @@ class FoundScreen extends StatelessWidget {
               // Button: Search Again
               ElevatedButton(
                 onPressed: () {
+                  if (sessionId != null) {
+                    ApiService.completeSession(
+                      sessionId: sessionId!,
+                      reason: 'User acknowledged found target and finished search.',
+                    ).then((_) {}).catchError((_) => null, test: (_) => true);
+                  }
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(builder: (_) => const HomeScreen()),
                     (route) => false,

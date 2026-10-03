@@ -264,6 +264,50 @@ class ApiService {
     }
   }
 
+  /// Phase 7: Record camera observation in spatial memory
+  static Future<void> recordObservation({
+    required String sessionId,
+    required double pitch,
+    required double roll,
+    String? guidance,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/memory/observation');
+      await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'session_id': sessionId,
+          'pitch': pitch,
+          'roll': roll,
+          ...?guidance != null ? {'guidance': guidance} : null,
+        }),
+      ).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
+  /// Phase 7: Record rejected candidate in memory
+  static Future<void> recordRejection({
+    required String sessionId,
+    required String candidateId,
+    required String reason,
+    double similarityScore = 0.0,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/memory/rejection');
+      await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'session_id': sessionId,
+          'candidate_id': candidateId,
+          'reason': reason,
+          'similarity_score': similarityScore,
+        }),
+      ).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
   static String _extractErrorDetail(String body) {
     try {
       final data = json.decode(body);

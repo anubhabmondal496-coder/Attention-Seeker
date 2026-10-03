@@ -21,6 +21,7 @@ class DeviceOrientationData(BaseModel):
     azimuth: Optional[float] = Field(None, description="Compass azimuth heading (0 to 360)")
 
 class SearchDecisionRequest(BaseModel):
+    session_id: Optional[str] = None
     current_state: SearchState
     candidate: Optional[Candidate] = None
     verification_status: Optional[VerificationStatus] = None

@@ -8,6 +8,7 @@ import '../models/candidate.dart';
 import '../models/verification.dart';
 import '../models/guidance.dart';
 import '../services/api_service.dart';
+import '../services/voice_service.dart';
 import '../theme/app_theme.dart';
 import 'found_screen.dart';
 
@@ -34,6 +35,9 @@ class _SearchScreenState extends State<SearchScreen> {
   String _sessionId = 'seek_${DateTime.now().millisecondsSinceEpoch}';
   int _candidatesEvaluated = 0;
 
+  // Phase 8 Voice Guidance state
+  bool _voiceEnabled = true;
+
   // Periodic sampling state
   Timer? _samplingTimer;
   bool _isProcessingFrame = false;
@@ -56,8 +60,14 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _initSensors();
+    _initVoice();
     _initSession();
     _initCamera();
+  }
+
+  Future<void> _initVoice() async {
+    await voiceGuidance.init();
+    _voiceEnabled = voiceGuidance.isEnabled;
   }
 
   Future<void> _initSession() async {
@@ -208,6 +218,7 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final decision = await ApiService.getSearchDecision(
         SearchDecisionRequest(
+          sessionId: _sessionId,
           currentState: state,
           candidate: candidate,
           verificationStatus: verificationStatus,
@@ -221,6 +232,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (_isDisposed || !mounted) return;
 
+      // Phase 7: Record observation into spatial memory
+      ApiService.recordObservation(
+        sessionId: _sessionId,
+        pitch: _pitch,
+        roll: _roll,
+        guidance: decision.guidanceText,
+      );
+
       if (_currentState != decision.nextState) {
         _syncState(decision.nextState, decision.reason);
       }
@@ -230,6 +249,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _currentAction = decision.action;
         _guidanceText = decision.guidanceText;
       });
+
+      // Phase 8: Emit spoken voice guidance
+      voiceGuidance.speak(decision.guidanceText);
     } catch (_) {}
   }
 
@@ -266,10 +288,13 @@ class _SearchScreenState extends State<SearchScreen> {
           _guidanceText = 'Object found!';
         });
 
+        voiceGuidance.speak('Object found!');
+
         // Navigate to Found Screen
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => FoundScreen(
+              sessionId: _sessionId,
               targetProfile: widget.targetProfile,
               verificationResult: verifyResponse.result,
               candidateCropBase64: candidate.cropBase64,
@@ -287,8 +312,15 @@ class _SearchScreenState extends State<SearchScreen> {
           _currentAction = GuidanceAction.moveCloser;
         });
       } else {
-        // Not a match: reject candidate and resume sweep
+        // Not a match: reject candidate, record in search memory, and resume sweep
         _syncState(SearchState.searching, 'Candidate rejected by Gemma, resuming sweep');
+        ApiService.recordRejection(
+          sessionId: _sessionId,
+          candidateId: candidate.id,
+          reason: verifyResponse.result.reason,
+          similarityScore: verifyResponse.result.confidence,
+        );
+
         setState(() {
           _currentState = SearchState.searching;
           _currentCandidate = null;
@@ -448,6 +480,31 @@ class _SearchScreenState extends State<SearchScreen> {
                             ),
                           ],
                         ],
+                      ),
+                    ),
+
+                    // Voice Guidance Toggle Button
+                    InkWell(
+                      onTap: () {
+                        voiceGuidance.toggleVoice();
+                        setState(() {
+                          _voiceEnabled = voiceGuidance.isEnabled;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.background.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: _voiceEnabled ? AppTheme.accent : AppTheme.border,
+                          ),
+                        ),
+                        child: Icon(
+                          _voiceEnabled ? Icons.volume_up : Icons.volume_off,
+                          size: 18,
+                          color: _voiceEnabled ? AppTheme.accent : AppTheme.textMuted,
+                        ),
                       ),
                     ),
                   ],

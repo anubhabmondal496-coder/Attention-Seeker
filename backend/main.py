@@ -14,6 +14,7 @@ from routes.target import router as target_router
 from routes.candidate import router as candidate_router
 from routes.search import router as search_router
 from routes.session import router as session_router
+from routes.memory import router as memory_router
 
 app = FastAPI(
     title="Attention Seeker Visual Search API",
@@ -35,6 +36,7 @@ app.include_router(target_router)
 app.include_router(candidate_router)
 app.include_router(search_router)
 app.include_router(session_router)
+app.include_router(memory_router)
 
 @app.get("/health")
 def health_check():

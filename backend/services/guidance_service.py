@@ -96,17 +96,55 @@ class GuidanceService:
                 reason="Candidate is centered and well-framed for verification."
             )
 
-        # 4. No candidate: Systematic environmental sweep guidance
-        # Use orientation tilt to give contextual feedback if device is pointed at ceiling
+        # 4. No candidate: Memory-informed environmental sweep guidance
+        # Use orientation tilt to give contextual feedback if device is pointed excessively high
         if request.orientation and request.orientation.pitch < -40.0:
             return SearchDecisionResponse(
                 action=GuidanceAction.TILT_DOWN,
-                guidance_text="Look lower toward the floor.",
+                guidance_text="Look lower toward surfaces.",
                 next_state=SearchState.SEARCHING,
                 reason="Camera pitched upwards toward ceiling."
             )
 
-        # Alternate sweep instructions
+        # Consult Search Memory (Phase 7) to guide user toward unexplored sectors
+        if request.session_id:
+            try:
+                from services.search_memory_service import search_memory_service
+                summary = search_memory_service.get_summary(request.session_id)
+                suggested = summary.suggested_direction
+
+                if suggested == "LOOK_LEFT":
+                    return SearchDecisionResponse(
+                        action=GuidanceAction.PAN_LEFT,
+                        guidance_text="Move camera slightly left.",
+                        next_state=SearchState.SEARCHING,
+                        reason="Exploring unsearched left sector based on memory."
+                    )
+                elif suggested == "LOOK_RIGHT":
+                    return SearchDecisionResponse(
+                        action=GuidanceAction.PAN_RIGHT,
+                        guidance_text="Pan slowly to your right.",
+                        next_state=SearchState.SEARCHING,
+                        reason="Exploring unsearched right sector based on memory."
+                    )
+                elif suggested == "LOOK_LOWER_GROUND":
+                    return SearchDecisionResponse(
+                        action=GuidanceAction.TILT_DOWN,
+                        guidance_text="Look lower toward the floor.",
+                        next_state=SearchState.SEARCHING,
+                        reason="Exploring lower floor/shelf zone based on memory."
+                    )
+                elif suggested == "LOOK_UPPER_SHELF":
+                    return SearchDecisionResponse(
+                        action=GuidanceAction.TILT_UP,
+                        guidance_text="Tilt camera slightly up.",
+                        next_state=SearchState.SEARCHING,
+                        reason="Exploring upper surface zone based on memory."
+                    )
+            except Exception:
+                pass
+
+        # Alternate sweep instructions fallback
         sweep_idx = (request.attempts_count // 3) % len(cls.SCAN_SWEEPS)
         action, text, reason = cls.SCAN_SWEEPS[sweep_idx]
 
