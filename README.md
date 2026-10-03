@@ -23,6 +23,55 @@ Attention Seeker does not replace the human or require robotic hardware; instead
 
 ---
 
+## 🏛️ System Architecture & Data Flow
+
+> [!IMPORTANT]
+> ### End-to-End Agentic Visual Pipeline
+> Below is the complete system flow diagram illustrating how live camera frames, candidate detections, spatial guidance, and Google Gemma multimodal reasoning interact across the Flutter client and FastAPI backend.
+
+<p align="center">
+  <img src="system_architecture_diagram.png" alt="Attention Seeker System Architecture" width="850"/>
+</p>
+
+```mermaid
+flowchart TD
+    User([User]) -->|Provides target photo & live frames| Flutter[Flutter Client]
+    Flutter -->|Calls Search APIs| FastAPI["FastAPI App (main.py)"]
+
+    subgraph AppState["App & State"]
+        FastAPI --> SearchState["Search State (state.py)"]
+        FastAPI --> InfConfig["Inference Config (config.py)"]
+    end
+
+    subgraph CandidateSearch["Candidate Search"]
+        FastAPI --> CandEP["Candidate Endpoints (candidate.py)"]
+        CandEP --> CandDet["Candidate Detector (candidate_detector.py)"]
+        CandDet --> CandSchema["Candidate Schema (candidate.py)"]
+        CandEP --> CandVer["Candidate Verifier (verifier_service.py)"]
+        CandVer --> VerSchema["Verification Schema (verification.py)"]
+    end
+
+    subgraph Guidance["Guidance Engine"]
+        FastAPI --> DecEP["Decision Endpoint (search.py)"]
+        DecEP --> GuidEng["Guidance Engine (guidance_service.py)"]
+        GuidEng --> GuidSchema["Guidance Schema (guidance.py)"]
+    end
+
+    subgraph TargetProfiling["Target Profiling"]
+        FastAPI --> TargetEP["Target Endpoint (target.py)"]
+        TargetEP --> TargetAna["Target Analyzer (target_analyzer.py)"]
+        TargetAna --> TargetProf["Target Profile (target.py)"]
+    end
+
+    subgraph InferenceLayer["Inference Layer"]
+        CandVer --> Gemma["Gemma Service (gemma_service.py)"]
+        TargetAna --> Gemma
+        Gemma --> Provider["Inference Providers (HF Router / Dedicated / Transformers)"]
+    end
+```
+
+---
+
 ## Architecture Overview
 
 ```
