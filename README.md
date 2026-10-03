@@ -98,7 +98,7 @@ flowchart TD
 <summary><b>📷 Click to view static architecture render</b></summary>
 <p align="center">
   <br/>
-  <img src="docs/images/system_architecture_diagram.png" alt="Attention Seeker System Architecture" width="550"/>
+  <img src="docs/images/system_architecture.png" alt="Attention Seeker System Architecture" width="550"/>
 </p>
 </details>
 
