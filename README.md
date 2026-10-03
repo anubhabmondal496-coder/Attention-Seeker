@@ -1,4 +1,4 @@
-# SEEK — Find what you lost.
+# Attention Seeker — Find what you lost.
 
 > An agentic multimodal visual search assistant that helps users locate specific lost physical objects using a reference image, descriptive context, live camera orientation, lightweight candidate generation, and Gemma multimodal reasoning.
 
@@ -7,7 +7,7 @@
 ## Architecture Overview
 
 ```
-SEEK/
+Attention Seeker/
 │
 ├── backend/
 │   ├── app/

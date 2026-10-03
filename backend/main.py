@@ -13,7 +13,7 @@ from app.state import SearchState
 from routes.target import router as target_router
 
 app = FastAPI(
-    title="SEEK Visual Search API",
+    title="Attention Seeker Visual Search API",
     version="0.1.0",
     description="Agentic multimodal visual search assistant backend powered by Gemma."
 )
@@ -35,7 +35,7 @@ def health_check():
     """Health check reporting system status and inference engine configuration."""
     return {
         "status": "healthy",
-        "service": "SEEK Backend",
+        "service": "Attention Seeker Backend",
         "search_state": SearchState.IDLE,
         "inference_backend": settings.GEMMA_BACKEND,
         "gemma_model": settings.GEMMA_ROUTER_MODEL if settings.GEMMA_BACKEND == "hf_router" else settings.GEMMA_MODEL_ID

@@ -5,7 +5,7 @@ from models.target import TargetProfile, TargetAnalyzeResponse
 from services.gemma_service import gemma_service
 from app.state import SearchState
 
-TARGET_ANALYSIS_SYSTEM_PROMPT = """You are SEEK, an expert computer-vision target profiling engine.
+TARGET_ANALYSIS_SYSTEM_PROMPT = """You are Attention Seeker, an expert computer-vision target profiling engine.
 Your task is to analyze a reference photo of an object that the user has lost and wants to find.
 Extract physical characteristics with high precision so that this EXACT physical object can be verified later.
 You MUST output valid, parseable JSON only. Do not output conversational preamble or markdown explanations outside the JSON."""
