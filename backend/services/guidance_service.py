@@ -1,0 +1,120 @@
+from models.guidance import (
+    GuidanceAction,
+    DeviceOrientationData,
+    SearchDecisionRequest,
+    SearchDecisionResponse
+)
+from app.state import SearchState
+from models.verification import VerificationStatus
+
+class GuidanceService:
+    """
+    Search guidance decision engine.
+    Analyzes visual candidate positions, device orientation, and verification states
+    to produce short, actionable user instructions.
+    """
+
+    # Structured panning sweep plan for unexplored areas
+    SCAN_SWEEPS = [
+        (GuidanceAction.PAN_LEFT, "Move camera slightly left.", "Sweep left sector."),
+        (GuidanceAction.PAN_RIGHT, "Pan slowly to your right.", "Sweep right sector."),
+        (GuidanceAction.TILT_DOWN, "Look lower toward surfaces.", "Inspect lower ground/table level."),
+        (GuidanceAction.MOVE_CLOSER, "Move closer to surfaces.", "Explore deeper zone."),
+    ]
+
+    @classmethod
+    def decide(cls, request: SearchDecisionRequest) -> SearchDecisionResponse:
+        # 1. Object already confirmed
+        if request.verification_status == VerificationStatus.FOUND or request.current_state == SearchState.FOUND:
+            return SearchDecisionResponse(
+                action=GuidanceAction.OBJECT_FOUND,
+                guidance_text="Object found.",
+                next_state=SearchState.FOUND,
+                reason="Target object definitively verified."
+            )
+
+        # 2. Verification in flight
+        if request.current_state == SearchState.VERIFYING:
+            return SearchDecisionResponse(
+                action=GuidanceAction.HOLD_STEADY,
+                guidance_text="Hold the camera steady.",
+                next_state=SearchState.VERIFYING,
+                reason="Gemma forensic analysis in progress."
+            )
+
+        # 3. Candidate in view: Guide user to center and zoom in on candidate
+        if request.candidate is not None:
+            box = request.candidate.bounding_box
+            cx = (box.xmin + box.xmax) / 2.0
+            cy = (box.ymin + box.ymax) / 2.0
+
+            # Horizontal centering
+            if cx < 0.38:
+                return SearchDecisionResponse(
+                    action=GuidanceAction.PAN_LEFT,
+                    guidance_text="Move camera slightly left.",
+                    next_state=SearchState.GUIDING,
+                    reason=f"Candidate located on the left (center x={cx:.2f})."
+                )
+            elif cx > 0.62:
+                return SearchDecisionResponse(
+                    action=GuidanceAction.PAN_RIGHT,
+                    guidance_text="Move camera slightly right.",
+                    next_state=SearchState.GUIDING,
+                    reason=f"Candidate located on the right (center x={cx:.2f})."
+                )
+
+            # Vertical centering
+            if cy < 0.32:
+                return SearchDecisionResponse(
+                    action=GuidanceAction.TILT_UP,
+                    guidance_text="Tilt camera slightly up.",
+                    next_state=SearchState.GUIDING,
+                    reason=f"Candidate located high in frame (center y={cy:.2f})."
+                )
+            elif cy > 0.68:
+                return SearchDecisionResponse(
+                    action=GuidanceAction.TILT_DOWN,
+                    guidance_text="Look lower.",
+                    next_state=SearchState.GUIDING,
+                    reason=f"Candidate located low in frame (center y={cy:.2f})."
+                )
+
+            # Centered: Check distance / apparent size
+            if request.candidate.area_ratio < 0.08:
+                return SearchDecisionResponse(
+                    action=GuidanceAction.MOVE_CLOSER,
+                    guidance_text="Move closer.",
+                    next_state=SearchState.GUIDING,
+                    reason=f"Candidate is centered but distant (area ratio={request.candidate.area_ratio:.3f})."
+                )
+
+            return SearchDecisionResponse(
+                action=GuidanceAction.HOLD_STEADY,
+                guidance_text="Hold the camera steady.",
+                next_state=SearchState.VERIFYING,
+                reason="Candidate is centered and well-framed for verification."
+            )
+
+        # 4. No candidate: Systematic environmental sweep guidance
+        # Use orientation tilt to give contextual feedback if device is pointed at ceiling
+        if request.orientation and request.orientation.pitch < -40.0:
+            return SearchDecisionResponse(
+                action=GuidanceAction.TILT_DOWN,
+                guidance_text="Look lower toward the floor.",
+                next_state=SearchState.SEARCHING,
+                reason="Camera pitched upwards toward ceiling."
+            )
+
+        # Alternate sweep instructions
+        sweep_idx = (request.attempts_count // 3) % len(cls.SCAN_SWEEPS)
+        action, text, reason = cls.SCAN_SWEEPS[sweep_idx]
+
+        return SearchDecisionResponse(
+            action=action,
+            guidance_text=text,
+            next_state=SearchState.SEARCHING,
+            reason=f"Unexplored environmental sweep: {reason}"
+        )
+
+guidance_service = GuidanceService()

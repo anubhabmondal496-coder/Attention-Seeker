@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/target_profile.dart';
 import '../models/candidate.dart';
 import '../models/verification.dart';
+import '../models/guidance.dart';
 
 class ApiService {
   // Base URL auto-selection:
@@ -153,6 +154,29 @@ class ApiService {
     } else {
       final errorDetail = _extractErrorDetail(response.body);
       throw Exception('Verification error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 5: Directional guidance search decision
+  static Future<SearchDecisionResponse> getSearchDecision(
+    SearchDecisionRequest request,
+  ) async {
+    final uri = Uri.parse('$baseUrl/search/decision');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(request.toJson()),
+    ).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw Exception('Guidance decision timed out.'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return SearchDecisionResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Decision error (${response.statusCode}): $errorDetail');
     }
   }
 

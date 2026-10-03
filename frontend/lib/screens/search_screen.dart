@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import '../models/target_profile.dart';
 import '../models/candidate.dart';
 import '../models/verification.dart';
+import '../models/guidance.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'found_screen.dart';
@@ -33,16 +35,38 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isProcessingFrame = false;
   bool _isVerifying = false;
   bool _isDisposed = false;
+  int _attemptsCount = 0;
 
   // Runtime search state
   SearchState _currentState = SearchState.searching;
   String _guidanceText = 'Scanning... Hold steady while scanning.';
+  GuidanceAction _currentAction = GuidanceAction.continueScanning;
   Candidate? _currentCandidate;
+
+  // Device orientation tracking via sensors_plus
+  StreamSubscription<AccelerometerEvent>? _accelSubscription;
+  double _pitch = 0.0;
+  double _roll = 0.0;
 
   @override
   void initState() {
     super.initState();
+    _initSensors();
     _initCamera();
+  }
+
+  void _initSensors() {
+    try {
+      _accelSubscription = accelerometerEventStream().listen(
+        (event) {
+          if (_isDisposed) return;
+          // Calculate pitch & roll from gravity vector
+          _pitch = event.z;
+          _roll = event.x;
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
   }
 
   Future<void> _initCamera() async {
@@ -89,7 +113,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _startFrameSampling() {
     _samplingTimer?.cancel();
-    // Sample frames periodically (every 1800 ms) to balance latency and processing
     _samplingTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
       _sampleAndDetectFrame();
     });
@@ -100,6 +123,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
     _isProcessingFrame = true;
+    _attemptsCount++;
 
     try {
       final XFile picture = await _cameraController!.takePicture();
@@ -116,26 +140,57 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (response.candidateFound && response.bestCandidate != null) {
         final candidate = response.bestCandidate!;
-        setState(() {
-          _currentState = SearchState.candidateDetected;
-          _currentCandidate = candidate;
-          _guidanceText = 'Candidate locked. Checking candidate...';
-        });
+        _currentCandidate = candidate;
+
+        // Query directional decision agent for optimal centering guidance
+        await _fetchGuidanceDecision(
+          candidate: candidate,
+          state: SearchState.candidateDetected,
+        );
 
         // Trigger Phase 4: Gemma Multimodal Verification
         await _verifyCandidate(candidate);
       } else {
-        setState(() {
-          _currentState = SearchState.searching;
-          _currentCandidate = null;
-          _guidanceText = 'Scanning... Move camera slowly.';
-        });
+        _currentCandidate = null;
+        await _fetchGuidanceDecision(
+          candidate: null,
+          state: SearchState.searching,
+        );
       }
     } catch (_) {
       // Keep search active on transient frame errors
     } finally {
       _isProcessingFrame = false;
     }
+  }
+
+  Future<void> _fetchGuidanceDecision({
+    Candidate? candidate,
+    required SearchState state,
+    VerificationStatus? verificationStatus,
+  }) async {
+    try {
+      final decision = await ApiService.getSearchDecision(
+        SearchDecisionRequest(
+          currentState: state,
+          candidate: candidate,
+          verificationStatus: verificationStatus,
+          orientation: DeviceOrientationData(
+            pitch: _pitch,
+            roll: _roll,
+          ),
+          attemptsCount: _attemptsCount,
+        ),
+      );
+
+      if (_isDisposed || !mounted) return;
+
+      setState(() {
+        _currentState = decision.nextState;
+        _currentAction = decision.action;
+        _guidanceText = decision.guidanceText;
+      });
+    } catch (_) {}
   }
 
   Future<void> _verifyCandidate(Candidate candidate) async {
@@ -146,6 +201,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _currentState = SearchState.verifying;
       _guidanceText = 'Checking candidate with Gemma...';
+      _currentAction = GuidanceAction.holdSteady;
     });
 
     try {
@@ -161,6 +217,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _samplingTimer?.cancel();
         setState(() {
           _currentState = SearchState.found;
+          _currentAction = GuidanceAction.objectFound;
           _guidanceText = 'Object found!';
         });
 
@@ -181,21 +238,25 @@ class _SearchScreenState extends State<SearchScreen> {
           _guidanceText = verifyResponse.result.guidance.isNotEmpty
               ? verifyResponse.result.guidance
               : 'Move closer to verify.';
+          _currentAction = GuidanceAction.moveCloser;
         });
       } else {
-        // Not a match: reject candidate and continue scanning
+        // Not a match: reject candidate and resume sweep
         setState(() {
           _currentState = SearchState.searching;
           _currentCandidate = null;
-          _guidanceText = 'Not a match. Scanning surroundings...';
         });
+        await _fetchGuidanceDecision(
+          candidate: null,
+          state: SearchState.searching,
+        );
       }
     } catch (_) {
-      // Fallback on verification network timeout
       if (mounted) {
         setState(() {
           _currentState = SearchState.candidateDetected;
           _guidanceText = 'Possible match. Move closer.';
+          _currentAction = GuidanceAction.moveCloser;
         });
       }
     } finally {
@@ -206,6 +267,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     _isDisposed = true;
+    _accelSubscription?.cancel();
     _samplingTimer?.cancel();
     _cameraController?.dispose();
     super.dispose();
@@ -240,7 +302,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-          // 2. Viewfinder Reticle
+          // 2. Viewfinder Reticle with Directional Cue
           _buildViewfinderReticle(),
 
           // 3. Dynamic Candidate Bounding Box Overlay
@@ -299,9 +361,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       decoration: BoxDecoration(
                         color: AppTheme.background.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: _getStateColor(),
-                        ),
+                        border: Border.all(color: _getStateColor()),
                       ),
                       child: Row(
                         children: [
@@ -352,34 +412,42 @@ class _SearchScreenState extends State<SearchScreen> {
                           color: _currentState == SearchState.found
                               ? AppTheme.statusFound
                               : (_currentState == SearchState.candidateDetected ||
-                                      _currentState == SearchState.verifying
+                                      _currentState == SearchState.verifying ||
+                                      _currentState == SearchState.guiding
                                   ? AppTheme.statusCandidate
                                   : AppTheme.border),
                         ),
                       ),
-                      child: Column(
+                      child: Row(
                         children: [
-                          Text(
-                            _guidanceText,
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                          _buildGuidanceIcon(),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _guidanceText,
+                                  style: const TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _isVerifying
+                                      ? 'Forensic reasoning in progress with Gemma...'
+                                      : (_currentState == SearchState.candidateDetected
+                                          ? 'Candidate locked. Centering target...'
+                                          : 'Scan surroundings smoothly.'),
+                                  style: const TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _isVerifying
-                                ? 'Forensic reasoning in progress with Gemma...'
-                                : (_currentState == SearchState.candidateDetected
-                                    ? 'Candidate region locked. Analyzing features...'
-                                    : 'Hold phone steady and scan surroundings slowly.'),
-                            style: const TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 12,
-                            ),
-                            textAlign: TextAlign.center,
                           ),
                         ],
                       ),
@@ -403,6 +471,52 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGuidanceIcon() {
+    IconData icon;
+    Color color = AppTheme.accent;
+
+    switch (_currentAction) {
+      case GuidanceAction.panLeft:
+        icon = Icons.arrow_back;
+        break;
+      case GuidanceAction.panRight:
+        icon = Icons.arrow_forward;
+        break;
+      case GuidanceAction.tiltUp:
+        icon = Icons.arrow_upward;
+        break;
+      case GuidanceAction.tiltDown:
+        icon = Icons.arrow_downward;
+        break;
+      case GuidanceAction.moveCloser:
+        icon = Icons.zoom_in;
+        break;
+      case GuidanceAction.holdSteady:
+        icon = Icons.crop_free;
+        color = AppTheme.statusCandidate;
+        break;
+      case GuidanceAction.objectFound:
+        icon = Icons.check_circle;
+        color = AppTheme.statusFound;
+        break;
+      case GuidanceAction.continueScanning:
+        icon = Icons.search;
+        color = AppTheme.statusSearching;
+        break;
+    }
+
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Icon(icon, size: 20, color: color),
     );
   }
 

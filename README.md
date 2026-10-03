@@ -103,3 +103,23 @@ curl.exe -X POST "http://127.0.0.1:8000/candidate/verify" `
   -F "candidate_crop=@reference_image.webp;type=image/jpeg" `
   -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[\"green seam stitching\",\"gold SG emblem\"],\"confidence\":0.95}"
 ```
+
+---
+
+## Phase 5: Directional Guidance Decision Engine
+
+### Endpoint: `POST /search/decision`
+- Evaluates spatial centering (`cx`, `cy`), candidate distance (`area_ratio`), device tilt/pitch, and search sweep state.
+- Generates concise, directional instructions to help the user locate and frame the object:
+  - `"Move camera slightly left."`
+  - `"Move camera slightly right."`
+  - `"Look lower."`
+  - `"Move closer."`
+  - `"Hold the camera steady."`
+  - `"Object found."`
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/search/decision" `
+  -H "Content-Type: application/json" `
+  -d "{\"current_state\":\"CANDIDATE_DETECTED\",\"candidate\":{\"id\":\"c1\",\"bounding_box\":{\"ymin\":0.4,\"xmin\":0.1,\"ymax\":0.6,\"xmax\":0.3},\"confidence\":0.8,\"area_ratio\":0.03,\"aspect_ratio\":1.0,\"reason\":\"test\"},\"attempts_count\":1}"
+```
