@@ -16,7 +16,9 @@ async def analyze_target(
     Receives a reference photo and optional description of the lost object,
     analyzes it using Gemma multimodal reasoning, and returns a structured TargetProfile.
     """
-    if not image.content_type.startswith("image/"):
+    # Some mobile HTTP clients send generic 'application/octet-stream' for multipart files.
+    # We validate actual image integrity via PIL below rather than strictly trusting the header.
+    if image.content_type and not (image.content_type.startswith("image/") or image.content_type == "application/octet-stream"):
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type '{image.content_type}'. Must be an image (JPEG, PNG, WebP, etc.)."
