@@ -169,7 +169,7 @@ Supported backends:
 ```powershell
 # In PowerShell:
 curl.exe -X POST "http://127.0.0.1:8000/target/analyze" `
-  -F "image=@reference_image.webp;type=image/webp" `
+  -F "image=@sample_object.jpg;type=image/jpeg" `
   -F "description=White SG tournament cricket ball"
 ```
 
@@ -184,7 +184,7 @@ curl.exe -X POST "http://127.0.0.1:8000/target/analyze" `
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/candidate/detect" `
-  -F "frame=@reference_image.webp;type=image/jpeg" `
+  -F "frame=@sample_object.jpg;type=image/jpeg" `
   -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[],\"confidence\":0.9}"
 ```
 
@@ -200,7 +200,7 @@ curl.exe -X POST "http://127.0.0.1:8000/candidate/detect" `
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/candidate/verify" `
-  -F "candidate_crop=@reference_image.webp;type=image/jpeg" `
+  -F "candidate_crop=@sample_object.jpg;type=image/jpeg" `
   -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[\"green seam stitching\",\"gold SG emblem\"],\"confidence\":0.95}"
 ```
 
