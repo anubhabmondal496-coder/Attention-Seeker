@@ -87,3 +87,19 @@ curl.exe -X POST "http://127.0.0.1:8000/candidate/detect" `
   -F "frame=@reference_image.webp;type=image/jpeg" `
   -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[],\"confidence\":0.9}"
 ```
+
+---
+
+## Phase 4: Gemma Multimodal Candidate Verification
+
+### Endpoint: `POST /candidate/verify`
+- Performs deep forensic visual comparison between the candidate crop and the `TargetProfile`.
+- Compares specific identifying markings, logo graphics, seam stitching, material texture, and colors.
+- Classifies candidates into: `FOUND`, `LIKELY_MATCH`, `POSSIBLE_MATCH`, or `NOT_A_MATCH`.
+- Generates concise actionable guidance instructions (`"Move closer."`, `"Object found."`, `"Not a match. Keep scanning."`).
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/candidate/verify" `
+  -F "candidate_crop=@reference_image.webp;type=image/jpeg" `
+  -F "target_profile={\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[\"green seam stitching\",\"gold SG emblem\"],\"confidence\":0.95}"
+```

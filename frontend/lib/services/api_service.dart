@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/target_profile.dart';
 import '../models/candidate.dart';
+import '../models/verification.dart';
 
 class ApiService {
   // Base URL auto-selection:
@@ -107,6 +108,51 @@ class ApiService {
     } else {
       final errorDetail = _extractErrorDetail(response.body);
       throw Exception('Candidate detection error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 4: Gemma multimodal verification of candidate crop
+  static Future<VerifyCandidateResponse> verifyCandidate({
+    required Uint8List candidateCropBytes,
+    required TargetProfile targetProfile,
+    Uint8List? referenceBytes,
+  }) async {
+    final uri = Uri.parse('$baseUrl/candidate/verify');
+    final request = http.MultipartRequest('POST', uri);
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'candidate_crop',
+        candidateCropBytes,
+        filename: 'crop.jpg',
+      ),
+    );
+
+    request.fields['target_profile'] = json.encode(targetProfile.toJson());
+
+    if (referenceBytes != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'reference_image',
+          referenceBytes,
+          filename: 'ref.jpg',
+        ),
+      );
+    }
+
+    final streamedResponse = await request.send().timeout(
+          const Duration(seconds: 60),
+          onTimeout: () => throw Exception('Gemma candidate verification timed out.'),
+        );
+
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return VerifyCandidateResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Verification error (${response.statusCode}): $errorDetail');
     }
   }
 

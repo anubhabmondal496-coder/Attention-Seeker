@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../models/target_profile.dart';
 import '../models/candidate.dart';
+import '../models/verification.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'found_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   final TargetProfile targetProfile;
@@ -28,6 +31,7 @@ class _SearchScreenState extends State<SearchScreen> {
   // Periodic sampling state
   Timer? _samplingTimer;
   bool _isProcessingFrame = false;
+  bool _isVerifying = false;
   bool _isDisposed = false;
 
   // Runtime search state
@@ -85,14 +89,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _startFrameSampling() {
     _samplingTimer?.cancel();
-    // Sample frames periodically (every 1800 ms) to keep latency low and avoid bandwidth saturation
+    // Sample frames periodically (every 1800 ms) to balance latency and processing
     _samplingTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
       _sampleAndDetectFrame();
     });
   }
 
   Future<void> _sampleAndDetectFrame() async {
-    if (_isProcessingFrame || _isDisposed) return;
+    if (_isProcessingFrame || _isVerifying || _isDisposed) return;
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
     _isProcessingFrame = true;
@@ -110,21 +114,92 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (_isDisposed || !mounted) return;
 
-      setState(() {
-        if (response.candidateFound && response.bestCandidate != null) {
+      if (response.candidateFound && response.bestCandidate != null) {
+        final candidate = response.bestCandidate!;
+        setState(() {
           _currentState = SearchState.candidateDetected;
-          _currentCandidate = response.bestCandidate;
-          _guidanceText = 'Possible match detected. Move closer.';
-        } else {
+          _currentCandidate = candidate;
+          _guidanceText = 'Candidate locked. Checking candidate...';
+        });
+
+        // Trigger Phase 4: Gemma Multimodal Verification
+        await _verifyCandidate(candidate);
+      } else {
+        setState(() {
           _currentState = SearchState.searching;
           _currentCandidate = null;
           _guidanceText = 'Scanning... Move camera slowly.';
-        }
-      });
+        });
+      }
     } catch (_) {
       // Keep search active on transient frame errors
     } finally {
       _isProcessingFrame = false;
+    }
+  }
+
+  Future<void> _verifyCandidate(Candidate candidate) async {
+    if (_isVerifying || _isDisposed) return;
+    if (candidate.cropBase64 == null || candidate.cropBase64!.isEmpty) return;
+
+    _isVerifying = true;
+    setState(() {
+      _currentState = SearchState.verifying;
+      _guidanceText = 'Checking candidate with Gemma...';
+    });
+
+    try {
+      final cropBytes = base64Decode(candidate.cropBase64!);
+      final verifyResponse = await ApiService.verifyCandidate(
+        candidateCropBytes: cropBytes,
+        targetProfile: widget.targetProfile,
+      );
+
+      if (_isDisposed || !mounted) return;
+
+      if (verifyResponse.status == VerificationStatus.found) {
+        _samplingTimer?.cancel();
+        setState(() {
+          _currentState = SearchState.found;
+          _guidanceText = 'Object found!';
+        });
+
+        // Navigate to Found Screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => FoundScreen(
+              targetProfile: widget.targetProfile,
+              verificationResult: verifyResponse.result,
+              candidateCropBase64: candidate.cropBase64,
+            ),
+          ),
+        );
+      } else if (verifyResponse.status == VerificationStatus.likelyMatch ||
+          verifyResponse.status == VerificationStatus.possibleMatch) {
+        setState(() {
+          _currentState = SearchState.guiding;
+          _guidanceText = verifyResponse.result.guidance.isNotEmpty
+              ? verifyResponse.result.guidance
+              : 'Move closer to verify.';
+        });
+      } else {
+        // Not a match: reject candidate and continue scanning
+        setState(() {
+          _currentState = SearchState.searching;
+          _currentCandidate = null;
+          _guidanceText = 'Not a match. Scanning surroundings...';
+        });
+      }
+    } catch (_) {
+      // Fallback on verification network timeout
+      if (mounted) {
+        setState(() {
+          _currentState = SearchState.candidateDetected;
+          _guidanceText = 'Possible match. Move closer.';
+        });
+      }
+    } finally {
+      _isVerifying = false;
     }
   }
 
@@ -225,9 +300,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         color: AppTheme.background.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
-                          color: _currentState == SearchState.candidateDetected
-                              ? AppTheme.statusCandidate
-                              : AppTheme.statusSearching,
+                          color: _getStateColor(),
                         ),
                       ),
                       child: Row(
@@ -236,9 +309,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             width: 6,
                             height: 6,
                             decoration: BoxDecoration(
-                              color: _currentState == SearchState.candidateDetected
-                                  ? AppTheme.statusCandidate
-                                  : AppTheme.statusSearching,
+                              color: _getStateColor(),
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -246,9 +317,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           Text(
                             _currentState.code,
                             style: TextStyle(
-                              color: _currentState == SearchState.candidateDetected
-                                  ? AppTheme.statusCandidate
-                                  : AppTheme.statusSearching,
+                              color: _getStateColor(),
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.5,
@@ -280,9 +349,12 @@ class _SearchScreenState extends State<SearchScreen> {
                         color: AppTheme.background.withValues(alpha: 0.92),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color: _currentState == SearchState.candidateDetected
-                              ? AppTheme.statusCandidate
-                              : AppTheme.border,
+                          color: _currentState == SearchState.found
+                              ? AppTheme.statusFound
+                              : (_currentState == SearchState.candidateDetected ||
+                                      _currentState == SearchState.verifying
+                                  ? AppTheme.statusCandidate
+                                  : AppTheme.border),
                         ),
                       ),
                       child: Column(
@@ -298,10 +370,10 @@ class _SearchScreenState extends State<SearchScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            _isProcessingFrame
-                                ? 'Sampling frame...'
+                            _isVerifying
+                                ? 'Forensic reasoning in progress with Gemma...'
                                 : (_currentState == SearchState.candidateDetected
-                                    ? 'Candidate region locked. Move closer to verify.'
+                                    ? 'Candidate region locked. Analyzing features...'
                                     : 'Hold phone steady and scan surroundings slowly.'),
                             style: const TextStyle(
                               color: AppTheme.textSecondary,
@@ -334,6 +406,20 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Color _getStateColor() {
+    switch (_currentState) {
+      case SearchState.found:
+        return AppTheme.statusFound;
+      case SearchState.verifying:
+      case SearchState.candidateDetected:
+      case SearchState.guiding:
+        return AppTheme.statusCandidate;
+      case SearchState.searching:
+      default:
+        return AppTheme.statusSearching;
+    }
+  }
+
   Widget _buildCandidateBoundingBoxOverlay(Candidate candidate) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -351,7 +437,10 @@ class _SearchScreenState extends State<SearchScreen> {
           child: IgnorePointer(
             child: Container(
               decoration: BoxDecoration(
-                border: Border.all(color: AppTheme.accent, width: 2.0),
+                border: Border.all(
+                  color: _isVerifying ? AppTheme.statusCandidate : AppTheme.accent,
+                  width: 2.0,
+                ),
                 borderRadius: BorderRadius.circular(4.0),
               ),
               child: Stack(
@@ -363,11 +452,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: AppTheme.accent,
+                        color: _isVerifying ? AppTheme.statusCandidate : AppTheme.accent,
                         borderRadius: BorderRadius.circular(2),
                       ),
                       child: Text(
-                        'CANDIDATE ${(candidate.confidence * 100).toInt()}%',
+                        _isVerifying
+                            ? 'VERIFYING...'
+                            : 'CANDIDATE ${(candidate.confidence * 100).toInt()}%',
                         style: const TextStyle(
                           color: Color(0xFF0E1116),
                           fontSize: 10,
