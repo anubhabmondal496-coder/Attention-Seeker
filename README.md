@@ -1,6 +1,25 @@
 # Attention Seeker — Find what you lost.
 
-> An agentic multimodal visual search assistant that helps users locate specific lost physical objects using a reference image, descriptive context, live camera orientation, lightweight candidate generation, and Gemma multimodal reasoning.
+> **An agentic multimodal visual search assistant that helps users locate specific lost physical objects in real-time using reference image profiling, spatial device orientation, lightweight candidate generation, and Google Gemma multimodal reasoning.**
+
+---
+
+## 🔍 About Attention Seeker
+
+Misplacing daily physical essentials — such as keys, wallets, earbuds cases, or remotes — is a universal friction point. Traditional computer vision object detectors only tell you:
+> *"There is a keychain."*
+
+**Attention Seeker is fundamentally different:**
+> *"This is the **exact** black Batman keychain with the red emblem and silver ring that you lost."*
+
+Attention Seeker does not replace the human or require robotic hardware; instead, **the AI agent plans and guides the user's physical search**. By pairing real-time live camera feeds with device gyroscope/accelerometer telemetry, spatial memory, and Gemma's multimodal intelligence, Attention Seeker directs your gaze with micro-guidance instructions (*"Look lower"*, *"Move slightly right"*, *"Move closer"*), crops promising candidates, and performs forensic visual verification until the object is confirmed.
+
+### Core Capabilities:
+- 🎯 **Target Profiling via Gemma**: Analyzes a photo of your lost object to extract visual fingerprints (colors, textures, logos, materials, distinct markings).
+- ⚡ **Sub-30ms Candidate Proposal**: Fast edge/color segmentation isolates regions of interest without sending every raw frame over the wire.
+- 🧠 **Forensic Multimodal Verification**: High-resolution candidate crops are evaluated by Google Gemma against distinctive target markers (`FOUND`, `LIKELY_MATCH`, `NOT_A_MATCH`).
+- 🧭 **Spatial Search Memory**: Remembers which 3D sectors (e.g. upper shelves, floor level, left table zone) you have already inspected and directs you toward unsearched areas.
+- 🗣️ **Real-Time Voice Guidance (TTS)**: Hands-free spoken instructions (*"Look lower"*, *"Move closer"*, *"Object found!"*) with built-in deduplication and mute controls.
 
 ---
 
