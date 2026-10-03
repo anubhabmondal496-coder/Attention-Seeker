@@ -1,0 +1,36 @@
+# Environment variables & secrets
+.env
+backend/.env
+*.env
+
+# Python
+ai_env/
+.ai_env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Flutter / Dart
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+
+.env
+.ai_env/
+__pycache__/
+*.pyc
