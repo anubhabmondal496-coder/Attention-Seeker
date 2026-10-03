@@ -30,6 +30,10 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _cameraUnavailable = false;
   String _cameraError = '';
 
+  // Phase 6 Search Session tracking
+  String _sessionId = 'seek_${DateTime.now().millisecondsSinceEpoch}';
+  int _candidatesEvaluated = 0;
+
   // Periodic sampling state
   Timer? _samplingTimer;
   bool _isProcessingFrame = false;
@@ -52,7 +56,33 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _initSensors();
+    _initSession();
     _initCamera();
+  }
+
+  Future<void> _initSession() async {
+    try {
+      final res = await ApiService.startSession(
+        targetProfile: widget.targetProfile,
+        sessionId: _sessionId,
+      );
+      if (res.success && mounted) {
+        setState(() {
+          _sessionId = res.session.sessionId;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _syncState(SearchState nextState, String reason) async {
+    if (_currentState == nextState) return;
+    try {
+      await ApiService.transitionState(
+        sessionId: _sessionId,
+        toState: nextState,
+        reason: reason,
+      );
+    } catch (_) {}
   }
 
   void _initSensors() {
@@ -142,6 +172,9 @@ class _SearchScreenState extends State<SearchScreen> {
         final candidate = response.bestCandidate!;
         _currentCandidate = candidate;
 
+        // Transition: SEARCHING -> CANDIDATE_DETECTED
+        _syncState(SearchState.candidateDetected, 'Fast CV detected region of interest');
+
         // Query directional decision agent for optimal centering guidance
         await _fetchGuidanceDecision(
           candidate: candidate,
@@ -152,6 +185,9 @@ class _SearchScreenState extends State<SearchScreen> {
         await _verifyCandidate(candidate);
       } else {
         _currentCandidate = null;
+        if (_currentState != SearchState.searching) {
+          _syncState(SearchState.searching, 'No candidate in view, continuing sweep');
+        }
         await _fetchGuidanceDecision(
           candidate: null,
           state: SearchState.searching,
@@ -185,6 +221,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (_isDisposed || !mounted) return;
 
+      if (_currentState != decision.nextState) {
+        _syncState(decision.nextState, decision.reason);
+      }
+
       setState(() {
         _currentState = decision.nextState;
         _currentAction = decision.action;
@@ -198,6 +238,9 @@ class _SearchScreenState extends State<SearchScreen> {
     if (candidate.cropBase64 == null || candidate.cropBase64!.isEmpty) return;
 
     _isVerifying = true;
+    _candidatesEvaluated++;
+    _syncState(SearchState.verifying, 'Centering candidate crop for Gemma forensic reasoning');
+
     setState(() {
       _currentState = SearchState.verifying;
       _guidanceText = 'Checking candidate with Gemma...';
@@ -215,6 +258,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (verifyResponse.status == VerificationStatus.found) {
         _samplingTimer?.cancel();
+        _syncState(SearchState.found, 'Gemma verified target identity');
+
         setState(() {
           _currentState = SearchState.found;
           _currentAction = GuidanceAction.objectFound;
@@ -233,6 +278,7 @@ class _SearchScreenState extends State<SearchScreen> {
         );
       } else if (verifyResponse.status == VerificationStatus.likelyMatch ||
           verifyResponse.status == VerificationStatus.possibleMatch) {
+        _syncState(SearchState.guiding, 'Candidate match plausible, guiding user closer');
         setState(() {
           _currentState = SearchState.guiding;
           _guidanceText = verifyResponse.result.guidance.isNotEmpty
@@ -242,6 +288,7 @@ class _SearchScreenState extends State<SearchScreen> {
         });
       } else {
         // Not a match: reject candidate and resume sweep
+        _syncState(SearchState.searching, 'Candidate rejected by Gemma, resuming sweep');
         setState(() {
           _currentState = SearchState.searching;
           _currentCandidate = null;
@@ -270,6 +317,12 @@ class _SearchScreenState extends State<SearchScreen> {
     _accelSubscription?.cancel();
     _samplingTimer?.cancel();
     _cameraController?.dispose();
+    if (_currentState != SearchState.found) {
+      ApiService.completeSession(
+        sessionId: _sessionId,
+        reason: 'User stopped search session',
+      ).then((_) {}).catchError((_) => null, test: (_) => true);
+    }
     super.dispose();
   }
 
@@ -383,6 +436,17 @@ class _SearchScreenState extends State<SearchScreen> {
                               letterSpacing: 0.5,
                             ),
                           ),
+                          if (_candidatesEvaluated > 0) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              '($_candidatesEvaluated)',
+                              style: const TextStyle(
+                                color: AppTheme.textMuted,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -123,3 +123,35 @@ curl.exe -X POST "http://127.0.0.1:8000/search/decision" `
   -H "Content-Type: application/json" `
   -d "{\"current_state\":\"CANDIDATE_DETECTED\",\"candidate\":{\"id\":\"c1\",\"bounding_box\":{\"ymin\":0.4,\"xmin\":0.1,\"ymax\":0.6,\"xmax\":0.3},\"confidence\":0.8,\"area_ratio\":0.03,\"aspect_ratio\":1.0,\"reason\":\"test\"},\"attempts_count\":1}"
 ```
+
+---
+
+## Phase 6: Search State Machine & Lifecycle Management
+
+### State Graph
+- Explicit, enforced transitions across all 8 states:
+  `IDLE` $\rightarrow$ `TARGET_READY` $\rightarrow$ `SEARCHING` $\rightleftharpoons$ `CANDIDATE_DETECTED` $\rightleftharpoons$ `VERIFYING` $\rightleftharpoons$ `GUIDING` $\rightarrow$ `FOUND` $\rightarrow$ `SEARCH_COMPLETE`.
+- Transition safeguards prevent illegal state jumps (returns HTTP 400 with diagnostic reason).
+
+### Session Endpoints
+- `POST /session/start`: Initializes a session with target profile and enters `SEARCHING`.
+- `GET /session/{session_id}`: Retrieves duration, attempt counts, evaluated candidates, and transition history.
+- `POST /session/transition`: Formally updates state with reason validation.
+- `POST /session/complete`: Terminates session with `SEARCH_COMPLETE`.
+
+```powershell
+# 1. Start Session
+curl.exe -X POST "http://127.0.0.1:8000/session/start" `
+  -H "Content-Type: application/json" `
+  -d "{\"session_id\":\"session_demo_1\",\"target_profile\":{\"object_type\":\"cricket ball\",\"primary_color\":\"white\",\"shape\":\"spherical\",\"material\":\"leather\",\"distinctive_features\":[\"green seam\"],\"confidence\":0.95}}"
+
+# 2. Transition State
+curl.exe -X POST "http://127.0.0.1:8000/session/transition" `
+  -H "Content-Type: application/json" `
+  -d "{\"session_id\":\"session_demo_1\",\"to_state\":\"CANDIDATE_DETECTED\",\"reason\":\"Contour identified in frame\"}"
+
+# 3. Complete Session
+curl.exe -X POST "http://127.0.0.1:8000/session/complete" `
+  -H "Content-Type: application/json" `
+  -d "{\"session_id\":\"session_demo_1\",\"reason\":\"Object located and confirmed\"}"
+```

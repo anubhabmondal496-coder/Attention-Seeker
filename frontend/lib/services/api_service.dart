@@ -6,6 +6,7 @@ import '../models/target_profile.dart';
 import '../models/candidate.dart';
 import '../models/verification.dart';
 import '../models/guidance.dart';
+import '../models/search_session.dart';
 
 class ApiService {
   // Base URL auto-selection:
@@ -177,6 +178,89 @@ class ApiService {
     } else {
       final errorDetail = _extractErrorDetail(response.body);
       throw Exception('Decision error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 6: Initialize a formalized search session with state machine
+  static Future<SessionResponse> startSession({
+    required TargetProfile targetProfile,
+    String? sessionId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/session/start');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        ...?sessionId != null ? {'session_id': sessionId} : null,
+        'target_profile': targetProfile.toJson(),
+      }),
+    ).timeout(
+      const Duration(seconds: 6),
+      onTimeout: () => throw Exception('Start session request timed out.'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return SessionResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Session start error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 6: Transition state machine to next state with explicit reason
+  static Future<SessionResponse> transitionState({
+    required String sessionId,
+    required SearchState toState,
+    required String reason,
+  }) async {
+    final uri = Uri.parse('$baseUrl/session/transition');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'session_id': sessionId,
+        'to_state': toState.code,
+        'reason': reason,
+      }),
+    ).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw Exception('State transition request timed out.'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return SessionResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Transition error (${response.statusCode}): $errorDetail');
+    }
+  }
+
+  /// Phase 6: Complete search session
+  static Future<SessionResponse> completeSession({
+    required String sessionId,
+    String reason = 'Search finished',
+  }) async {
+    final uri = Uri.parse('$baseUrl/session/complete');
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'session_id': sessionId,
+        'reason': reason,
+      }),
+    ).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw Exception('Complete session request timed out.'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return SessionResponse.fromJson(data);
+    } else {
+      final errorDetail = _extractErrorDetail(response.body);
+      throw Exception('Complete error (${response.statusCode}): $errorDetail');
     }
   }
 
