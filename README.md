@@ -27,48 +27,80 @@ Attention Seeker does not replace the human or require robotic hardware; instead
 
 > [!IMPORTANT]
 > ### End-to-End Agentic Visual Pipeline
-> Below is the complete system flow diagram illustrating how live camera frames, candidate detections, spatial guidance, and Google Gemma multimodal reasoning interact across the Flutter client and FastAPI backend.
-
-<p align="center">
-  <img src="system_architecture_diagram.png" alt="Attention Seeker System Architecture" width="850"/>
-</p>
+> Attention Seeker combines on-device camera & orientation sensor telemetry, fast computer-vision candidate proposals, and Google Gemma multimodal reasoning through an explicit 8-state machine.
 
 ```mermaid
 flowchart TD
-    User([User]) -->|Provides target photo & live frames| Flutter[Flutter Client]
-    Flutter -->|Calls Search APIs| FastAPI["FastAPI App (main.py)"]
+    %% Styling
+    classDef client fill:#1f2937,stroke:#3b82f6,stroke-width:2px,color:#fff;
+    classDef api fill:#111827,stroke:#e5a93c,stroke-width:2px,color:#fff;
+    classDef cv fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff;
+    classDef gemma fill:#4c1d95,stroke:#8b5cf6,stroke-width:2px,color:#fff;
+    classDef memory fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fff;
 
-    subgraph AppState["App & State"]
-        FastAPI --> SearchState["Search State (state.py)"]
-        FastAPI --> InfConfig["Inference Config (config.py)"]
+    User([👤 User with Lost Object]):::client
+    
+    subgraph Frontend["📱 Flutter Mobile Client (Attention Seeker)"]
+        UI["UI Screens (Home / Add / Search / Found)"]:::client
+        Cam["Live Camera Viewfinder (camera)"]:::client
+        Sensors["Device Orientation (sensors_plus: Pitch/Roll)"]:::client
+        TTS["Voice Guidance Engine (flutter_tts)"]:::client
     end
 
-    subgraph CandidateSearch["Candidate Search"]
-        FastAPI --> CandEP["Candidate Endpoints (candidate.py)"]
-        CandEP --> CandDet["Candidate Detector (candidate_detector.py)"]
-        CandDet --> CandSchema["Candidate Schema (candidate.py)"]
-        CandEP --> CandVer["Candidate Verifier (verifier_service.py)"]
-        CandVer --> VerSchema["Verification Schema (verification.py)"]
+    subgraph BackendAPI["⚡ FastAPI Backend Service"]
+        Router["API Gateway (main.py)"]:::api
+        FSM["Search State Controller (app/state.py)"]:::api
     end
 
-    subgraph Guidance["Guidance Engine"]
-        FastAPI --> DecEP["Decision Endpoint (search.py)"]
-        DecEP --> GuidEng["Guidance Engine (guidance_service.py)"]
-        GuidEng --> GuidSchema["Guidance Schema (guidance.py)"]
+    subgraph FastCV["🔍 Fast Candidate Generation (Sub-25ms)"]
+        Detector["OpenCV Saliency & HSV Segmentation"]:::cv
+        Crop["Candidate BBox & Crop Generator"]:::cv
     end
 
-    subgraph TargetProfiling["Target Profiling"]
-        FastAPI --> TargetEP["Target Endpoint (target.py)"]
-        TargetEP --> TargetAna["Target Analyzer (target_analyzer.py)"]
-        TargetAna --> TargetProf["Target Profile (target.py)"]
+    subgraph GuidanceEngine["🧭 Directional Search Guidance"]
+        Centering["Spatial Centering & Distance Evaluator"]:::memory
+        MemService["Search Memory (Explored Sectors & Rejections)"]:::memory
     end
 
-    subgraph InferenceLayer["Inference Layer"]
-        CandVer --> Gemma["Gemma Service (gemma_service.py)"]
-        TargetAna --> Gemma
-        Gemma --> Provider["Inference Providers (HF Router / Dedicated / Transformers)"]
+    subgraph MultimodalReasoning["🧠 Multimodal Inference Layer"]
+        Analyzer["Target Analyzer (services/target_analyzer.py)"]:::gemma
+        Verifier["Forensic Candidate Verifier (verifier_service.py)"]:::gemma
+        GemmaEngine["Gemma Inference Service (google/gemma-3-4b-it)"]:::gemma
     end
+
+    %% Interactions
+    User -->|1. Takes reference photo| UI
+    UI -->|POST /target/analyze| Router
+    Router --> Analyzer
+    Analyzer --> GemmaEngine
+    GemmaEngine -->|TargetProfile JSON| UI
+
+    User -->|2. Scans environment| Cam
+    Cam -->|Periodic 1800ms frames| Router
+    Router --> Detector
+    Detector -->|Candidates found?| Crop
+
+    Crop -->|YES: Candidate centered?| Centering
+    Centering -->|No: Move left / right / closer| TTS
+    Centering -->|Yes: Hold steady| Verifier
+    Verifier --> GemmaEngine
+    GemmaEngine -->|FOUND| UI
+    GemmaEngine -->|NOT_A_MATCH| MemService
+
+    Detector -->|NO: No candidate| MemService
+    MemService -->|Suggests unexplored direction| TTS
+    TTS -->|Spoken instructions| User
+    
+    Router <--> FSM
 ```
+
+<details>
+<summary><b>📷 Click to view static architecture render</b></summary>
+<p align="center">
+  <br/>
+  <img src="docs/images/system_architecture_diagram.png" alt="Attention Seeker System Architecture" width="550"/>
+</p>
+</details>
 
 ---
 
