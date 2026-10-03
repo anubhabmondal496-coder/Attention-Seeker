@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: attention-seeker-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: GEMMA_BACKEND
+        value: hf_router
+      - key: GEMMA_ROUTER_MODEL
+        value: google/gemma-3-4b-it
+      - key: HF_TOKEN
+        sync: false

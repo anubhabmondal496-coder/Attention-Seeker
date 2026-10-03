@@ -9,10 +9,16 @@ import '../models/guidance.dart';
 import '../models/search_session.dart';
 
 class ApiService {
+  // Allows setting custom Render cloud URL at build or runtime:
+  // e.g. flutter run --dart-define=BACKEND_URL=https://your-app.onrender.com
+  static const String _envBaseUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
+
   // Base URL auto-selection:
+  // - If BACKEND_URL dart-define is provided, use that
   // - Android emulator uses 10.0.2.2 to access host machine
   // - Windows desktop / web / iOS simulator use 127.0.0.1
   static String get defaultBaseUrl {
+    if (_envBaseUrl.isNotEmpty) return _envBaseUrl;
     if (kIsWeb) return 'http://127.0.0.1:8000';
     try {
       if (Platform.isAndroid) return 'http://10.0.2.2:8000';

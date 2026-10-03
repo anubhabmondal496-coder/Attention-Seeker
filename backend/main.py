@@ -38,6 +38,17 @@ app.include_router(search_router)
 app.include_router(session_router)
 app.include_router(memory_router)
 
+@app.get("/")
+def root():
+    """Root landing endpoint with interactive documentation and status links."""
+    return {
+        "service": "Attention Seeker Visual Search API",
+        "tagline": "Find what you lost.",
+        "status": "online",
+        "docs_url": "/docs",
+        "health_check_url": "/health"
+    }
+
 @app.get("/health")
 def health_check():
     """Health check reporting system status and inference engine configuration."""
