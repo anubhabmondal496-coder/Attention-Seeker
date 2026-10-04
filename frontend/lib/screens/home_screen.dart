@@ -214,6 +214,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const Spacer(flex: 2),
 
+              // App Logo Emblem
+              Center(
+                child: Container(
+                  width: 96,
+                  height: 96,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Image.asset(
+                    'assets/images/app_icon.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
               // Title and Tagline
               const Text(
                 'Attention Seeker',

@@ -62,5 +62,5 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"Starting SEEK Backend on {settings.HOST}:{settings.PORT}...")
+    print(f"Starting Attention Seeker Backend on {settings.HOST}:{settings.PORT}...")
     uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=True)
