@@ -7,7 +7,13 @@ from app.state import SearchState
 
 TARGET_ANALYSIS_SYSTEM_PROMPT = """You are Attention Seeker, an expert computer-vision target profiling engine.
 Your task is to analyze a reference photo of an object that the user has lost and wants to find.
-Extract physical characteristics with high precision so that this EXACT physical object can be verified later.
+Extract physical characteristics with forensic precision so that this EXACT physical object can be verified later,
+even when hidden in outdoor bushes, grass, foliage, or congested indoor clutter (desks, drawers, under furniture).
+Focus on:
+1. Geometric shape, straight edges, rectangular forms, or contours that contrast against organic foliage.
+2. Distinctive colors, accents, and materials (e.g. cardboard, plastic, wood, metal, leather).
+3. Multi-angle features (e.g. for a matchbox: printed face label, dark brown side friction striking strip, inner tray ends).
+4. Visible logos, typography, wear marks, or distinctive seams.
 You MUST output valid, parseable JSON only. Do not output conversational preamble or markdown explanations outside the JSON."""
 
 class TargetAnalyzerService:
@@ -35,26 +41,25 @@ class TargetAnalyzerService:
         return json.loads(cleaned)
 
     @classmethod
-    def analyze(cls, image_bytes: bytes, user_description: Optional[str] = None) -> TargetAnalyzeResponse:
+    def analyze(cls, image_bytes: Optional[bytes] = None, user_description: Optional[str] = None) -> TargetAnalyzeResponse:
         user_context_clause = (
-            f"User provided context/clue: \"{user_description}\"\n"
+            f"User spoken/typed description: \"{user_description}\"\n"
             if user_description and user_description.strip()
-            else "No additional description provided by the user.\n"
+            else "No description provided by the user.\n"
         )
 
         prompt = f"""{user_context_clause}
-Carefully examine the reference image of the lost object.
-Provide a structured target profile in the following JSON format:
+Extract a structured physical target profile in the following JSON format:
 {{
-    "object_type": "<e.g. cricket ball, keychain, wallet, earbuds case>",
-    "primary_color": "<dominant visible color>",
+    "object_type": "<e.g. matchbox, keys, keychain, wallet, earbuds case, remote, medicine bottle>",
+    "primary_color": "<dominant visible color: red, brown, black, white, blue, green, yellow, etc.>",
     "secondary_color": "<accent or secondary color, or null>",
-    "shape": "<geometric shape or form factor>",
-    "material": "<perceived material: leather, metal, hard plastic, fabric, etc.>",
+    "shape": "<geometric shape or form factor: rectangular box, cylindrical, spherical, flat, etc.>",
+    "material": "<perceived material: cardboard, plastic, metal, leather, wood, etc.>",
     "distinctive_features": [
-        "<feature 1, e.g. dark green cross-stitched raised seam>",
-        "<feature 2, e.g. gold SG emblem with laurel graphic>",
-        "<feature 3, e.g. text inscribed 'believe become'>"
+        "<feature 1, e.g. dark brown side friction striking strip>",
+        "<feature 2, e.g. red front label with yellow logo>",
+        "<feature 3, e.g. cardboard sliding drawer>"
     ],
     "confidence": <float between 0.8 and 1.0 based on clarity of features>
 }}
@@ -62,11 +67,18 @@ Provide a structured target profile in the following JSON format:
 Return ONLY valid JSON matching this structure.
 """
 
-        raw_output = gemma_service.generate_multimodal(
-            image_bytes=image_bytes,
-            prompt=prompt,
-            system_prompt=TARGET_ANALYSIS_SYSTEM_PROMPT
-        )
+        if image_bytes is not None and len(image_bytes) > 0:
+            raw_output = gemma_service.generate_multimodal(
+                image_bytes=image_bytes,
+                prompt=prompt,
+                system_prompt=TARGET_ANALYSIS_SYSTEM_PROMPT
+            )
+        else:
+            # Voice / text only mode (specially for visually impaired users without a reference photo)
+            raw_output = gemma_service.generate_text(
+                prompt=prompt,
+                system_prompt=TARGET_ANALYSIS_SYSTEM_PROMPT
+            )
 
         try:
             parsed_data = cls._extract_json(raw_output)

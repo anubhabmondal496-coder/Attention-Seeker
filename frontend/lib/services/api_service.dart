@@ -61,8 +61,8 @@ class ApiService {
       request.files.add(
         await http.MultipartFile.fromPath('image', imagePath),
       );
-    } else {
-      throw Exception('No reference image provided.');
+    } else if (description == null || description.trim().isEmpty) {
+      throw Exception('Please provide a photo or voice describe the lost item.');
     }
 
     if (description != null && description.trim().isNotEmpty) {

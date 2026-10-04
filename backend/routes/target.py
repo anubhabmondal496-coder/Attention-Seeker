@@ -9,33 +9,37 @@ router = APIRouter(prefix="/target", tags=["Target"])
 
 @router.post("/analyze", response_model=TargetAnalyzeResponse)
 async def analyze_target(
-    image: UploadFile = File(..., description="Reference photo of the lost object"),
-    description: Optional[str] = Form(None, description="Optional text description from user")
+    image: Optional[UploadFile] = File(None, description="Optional reference photo of the lost object"),
+    description: Optional[str] = Form(None, description="Optional text or voice description from user")
 ):
     """
-    Receives a reference photo and optional description of the lost object,
-    analyzes it using Gemma multimodal reasoning, and returns a structured TargetProfile.
+    Receives an optional reference photo and/or voice description of the lost object,
+    analyzes it using Gemma multimodal/text reasoning, and returns a structured TargetProfile.
     """
-    # Some mobile HTTP clients send generic 'application/octet-stream' for multipart files.
-    # We validate actual image integrity via PIL below rather than strictly trusting the header.
-    if image.content_type and not (image.content_type.startswith("image/") or image.content_type == "application/octet-stream"):
+    if not image and (not description or not description.strip()):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type '{image.content_type}'. Must be an image (JPEG, PNG, WebP, etc.)."
+            detail="Please provide either a photo of the lost object or describe it using voice typing."
         )
 
-    try:
-        image_bytes = await image.read()
-        if len(image_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded image file is empty.")
-
-        # Validate that the bytes form a readable image
+    image_bytes = None
+    if image is not None:
         try:
-            with Image.open(io.BytesIO(image_bytes)) as img:
-                img.verify()
-        except Exception as img_err:
-            raise HTTPException(status_code=400, detail=f"Corrupt or unreadable image: {img_err}")
+            read_bytes = await image.read()
+            if len(read_bytes) > 0:
+                # Validate readable image
+                try:
+                    with Image.open(io.BytesIO(read_bytes)) as img:
+                        img.verify()
+                    image_bytes = read_bytes
+                except Exception as img_err:
+                    raise HTTPException(status_code=400, detail=f"Corrupt or unreadable image: {img_err}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to process image: {e}")
 
+    try:
         # Run Gemma target profile analysis
         result = target_analyzer_service.analyze(
             image_bytes=image_bytes,

@@ -9,6 +9,7 @@ enum GuidanceAction {
   tiltDown('TILT_DOWN'),
   moveCloser('MOVE_CLOSER'),
   holdSteady('HOLD_STEADY'),
+  cropping('CROPPING'),
   objectFound('OBJECT_FOUND'),
   continueScanning('CONTINUE_SCANNING');
 

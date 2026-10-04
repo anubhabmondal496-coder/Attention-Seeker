@@ -9,6 +9,7 @@ import '../models/verification.dart';
 import '../models/guidance.dart';
 import '../services/api_service.dart';
 import '../services/voice_service.dart';
+import '../services/accessibility_service.dart';
 import '../theme/app_theme.dart';
 import 'found_screen.dart';
 
@@ -44,6 +45,12 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isVerifying = false;
   bool _isDisposed = false;
   int _attemptsCount = 0;
+
+  // Hardware camera zoom control
+  double _minZoom = 1.0;
+  double _maxZoom = 4.0;
+  double _currentZoom = 1.0;
+  double _baseScale = 1.0;
 
   // Runtime search state
   SearchState _currentState = SearchState.searching;
@@ -136,6 +143,12 @@ class _SearchScreenState extends State<SearchScreen> {
       await _cameraController!.initialize();
       if (!mounted) return;
 
+      try {
+        _minZoom = await _cameraController!.getMinZoomLevel();
+        final hwMax = await _cameraController!.getMaxZoomLevel();
+        _maxZoom = hwMax.clamp(1.0, 4.0);
+      } catch (_) {}
+
       setState(() {
         _isCameraInitialized = true;
         _cameraUnavailable = false;
@@ -149,6 +162,27 @@ class _SearchScreenState extends State<SearchScreen> {
         _cameraError = 'Camera initialization failed: $e';
       });
     }
+  }
+
+  Future<void> _smoothZoomTo(double targetZoom) async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    final clamped = targetZoom.clamp(_minZoom, _maxZoom);
+    if ((_currentZoom - clamped).abs() < 0.15) return;
+
+    final steps = 4;
+    final stepDiff = (clamped - _currentZoom) / steps;
+    for (int i = 0; i < steps; i++) {
+      if (_isDisposed || !mounted) break;
+      _currentZoom = (_currentZoom + stepDiff).clamp(_minZoom, _maxZoom);
+      try {
+        await _cameraController!.setZoomLevel(_currentZoom);
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 30));
+    }
+    _currentZoom = clamped;
+    try {
+      await _cameraController!.setZoomLevel(_currentZoom);
+    } catch (_) {}
   }
 
   void _startFrameSampling() {
@@ -182,6 +216,11 @@ class _SearchScreenState extends State<SearchScreen> {
         final candidate = response.bestCandidate!;
         _currentCandidate = candidate;
 
+        // Smooth hardware optical zoom into candidate
+        if (candidate.zoomLevel > 1.2) {
+          _smoothZoomTo(candidate.zoomLevel);
+        }
+
         // Transition: SEARCHING -> CANDIDATE_DETECTED
         _syncState(SearchState.candidateDetected, 'Fast CV detected region of interest');
 
@@ -195,6 +234,9 @@ class _SearchScreenState extends State<SearchScreen> {
         await _verifyCandidate(candidate);
       } else {
         _currentCandidate = null;
+        if (_currentZoom > 1.1) {
+          _smoothZoomTo(1.0);
+        }
         if (_currentState != SearchState.searching) {
           _syncState(SearchState.searching, 'No candidate in view, continuing sweep');
         }
@@ -263,11 +305,16 @@ class _SearchScreenState extends State<SearchScreen> {
     _candidatesEvaluated++;
     _syncState(SearchState.verifying, 'Centering candidate crop for Gemma forensic reasoning');
 
+    final isZoomed = candidate.zoomLevel > 1.2;
     setState(() {
       _currentState = SearchState.verifying;
-      _guidanceText = 'Checking candidate with Gemma...';
-      _currentAction = GuidanceAction.holdSteady;
+      _guidanceText = isZoomed ? 'Cropping. Please hold steady.' : 'Checking candidate with Gemma...';
+      _currentAction = isZoomed ? GuidanceAction.cropping : GuidanceAction.holdSteady;
     });
+
+    if (isZoomed) {
+      voiceGuidance.speak('Cropping. Please hold steady.');
+    }
 
     try {
       final cropBytes = base64Decode(candidate.cropBase64!);
@@ -289,6 +336,7 @@ class _SearchScreenState extends State<SearchScreen> {
         });
 
         voiceGuidance.speak('Object found!');
+        a11yService.triggerHaptic(HapticType.success);
 
         // Navigate to Found Screen
         Navigator.of(context).pushReplacement(
@@ -367,10 +415,22 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           // 1. Live Camera Feed (or fallback viewfinder)
           if (_isCameraInitialized && _cameraController != null)
-            Center(
-              child: AspectRatio(
-                aspectRatio: 1 / _cameraController!.value.aspectRatio,
-                child: CameraPreview(_cameraController!),
+            GestureDetector(
+              onScaleStart: (_) {
+                _baseScale = _currentZoom;
+              },
+              onScaleUpdate: (details) {
+                final newZoom = (_baseScale * details.scale).clamp(_minZoom, _maxZoom);
+                if ((newZoom - _currentZoom).abs() > 0.05) {
+                  _currentZoom = newZoom;
+                  _cameraController?.setZoomLevel(newZoom);
+                }
+              },
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 1 / _cameraController!.value.aspectRatio,
+                  child: CameraPreview(_cameraController!),
+                ),
               ),
             )
           else if (_cameraUnavailable)
@@ -619,6 +679,10 @@ class _SearchScreenState extends State<SearchScreen> {
         icon = Icons.crop_free;
         color = AppTheme.statusCandidate;
         break;
+      case GuidanceAction.cropping:
+        icon = Icons.filter_center_focus;
+        color = AppTheme.statusCandidate;
+        break;
       case GuidanceAction.objectFound:
         icon = Icons.check_circle;
         color = AppTheme.statusFound;
@@ -692,8 +756,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       child: Text(
                         _isVerifying
-                            ? 'VERIFYING...'
-                            : 'CANDIDATE ${(candidate.confidence * 100).toInt()}%',
+                            ? (candidate.zoomLevel > 1.2
+                                ? 'CROPPING ${candidate.zoomLevel.toStringAsFixed(1)}x...'
+                                : 'VERIFYING...')
+                            : 'CANDIDATE ${(candidate.confidence * 100).toInt()}%${candidate.zoomLevel > 1.2 ? ' • ${candidate.zoomLevel.toStringAsFixed(1)}x' : ''}',
                         style: const TextStyle(
                           color: Color(0xFF0E1116),
                           fontSize: 10,

@@ -23,6 +23,7 @@ class Candidate(BaseModel):
     area_ratio: float = Field(..., description="Fraction of total frame area occupied by candidate")
     aspect_ratio: float = Field(..., description="Width-to-height ratio of candidate")
     crop_base64: Optional[str] = Field(None, description="Base64 JPEG crop of candidate region for Gemma verification")
+    zoom_level: float = Field(1.0, description="Magnification / crop zoom level (1.0x to 4.0x)")
     reason: str = Field(..., description="Reason for candidate proposal (e.g. color match, shape alignment)")
 
 class CandidateDetectResponse(BaseModel):

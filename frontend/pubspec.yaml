@@ -39,6 +39,8 @@ dependencies:
   http: ^1.6.0
   sensors_plus: ^7.1.1
   flutter_tts: ^4.2.5
+  speech_to_text: ^7.5.0
+  video_player: ^2.14.1
 
 dev_dependencies:
   flutter_test:
@@ -64,6 +66,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/videos/
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg

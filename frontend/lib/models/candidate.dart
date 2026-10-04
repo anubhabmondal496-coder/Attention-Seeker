@@ -42,6 +42,7 @@ class Candidate {
   final double areaRatio;
   final double aspectRatio;
   final String? cropBase64;
+  final double zoomLevel;
   final String reason;
 
   const Candidate({
@@ -51,6 +52,7 @@ class Candidate {
     required this.areaRatio,
     required this.aspectRatio,
     this.cropBase64,
+    this.zoomLevel = 1.0,
     required this.reason,
   });
 
@@ -64,6 +66,7 @@ class Candidate {
       areaRatio: (json['area_ratio'] as num?)?.toDouble() ?? 0.0,
       aspectRatio: (json['aspect_ratio'] as num?)?.toDouble() ?? 1.0,
       cropBase64: json['crop_base64'] as String?,
+      zoomLevel: (json['zoom_level'] as num?)?.toDouble() ?? 1.0,
       reason: json['reason'] as String? ?? '',
     );
   }

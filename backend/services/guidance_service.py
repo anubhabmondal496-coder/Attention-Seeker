@@ -80,13 +80,14 @@ class GuidanceService:
                     reason=f"Candidate located low in frame (center y={cy:.2f})."
                 )
 
-            # Centered: Check distance / apparent size
-            if request.candidate.area_ratio < 0.08:
+            # Centered: Check if progressive zoom / up to 4x crop is engaged for small object
+            zoom = getattr(request.candidate, "zoom_level", 1.0)
+            if zoom > 1.2 or request.candidate.area_ratio < 0.10:
                 return SearchDecisionResponse(
-                    action=GuidanceAction.MOVE_CLOSER,
-                    guidance_text="Move closer.",
-                    next_state=SearchState.GUIDING,
-                    reason=f"Candidate is centered but distant (area ratio={request.candidate.area_ratio:.3f})."
+                    action=GuidanceAction.CROPPING,
+                    guidance_text="Cropping. Please hold steady.",
+                    next_state=SearchState.VERIFYING,
+                    reason=f"Small candidate framed with {zoom:.1f}x crop. Zooming in for forensic inspection."
                 )
 
             return SearchDecisionResponse(
